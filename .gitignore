@@ -1,0 +1,8 @@
+# folders to ignore
+data/
+models/
+input/
+output/
+__pycache__/
+# files to ignore
+search-results.json

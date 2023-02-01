@@ -1,0 +1,28 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Python: Inference",
+            "type": "python",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "args":[
+                "--video", "input/vendimia_faces.mp4",
+                "--config", "mmaction2/configs/detection/ava/slowonly_omnisource_pretrained_r101_8x8x1_20e_ava_rgb.py",
+                "--det-config", "mmaction2/demo/faster_rcnn_r50_fpn_2x_coco.py",
+                "--det-score-thr", "0.5",
+                "--action-score-thr", "0.5",
+                "--label-map", "mmaction2/tools/data/ava/label_map.txt",
+                "--predict-stepsize", "8",
+                "--output-stepsize", "4",
+                "--output-fps", "6",
+                "--out-filename", "output/"
+            ]   
+        }
+    ]
+}
