@@ -12,15 +12,15 @@
             "console": "integratedTerminal",
             "justMyCode": true,
             "args":[
-                "--video", "input/vendimia_faces.mp4",
+                "--video", "input/VID_20230328_124524.mp4",
                 "--config", "mmaction2/configs/detection/ava/slowonly_omnisource_pretrained_r101_8x8x1_20e_ava_rgb.py",
                 "--det-config", "mmaction2/demo/faster_rcnn_r50_fpn_2x_coco.py",
-                "--det-score-thr", "0.5",
-                "--action-score-thr", "0.5",
+                "--det-score-thr", "0.2",
+                "--action-score-thr", "0.3",
                 "--label-map", "mmaction2/tools/data/ava/label_map.txt",
-                "--predict-stepsize", "8",
-                "--output-stepsize", "4",
-                "--output-fps", "6",
+                "--predict-stepsize", "12",
+                "--output-stepsize", "2",
+                "--output-fps", "12",
                 "--out-filename", "output/"
             ]   
         }
