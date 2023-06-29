@@ -5,6 +5,12 @@ import os
 import os.path as osp
 import shutil
 import sys
+import json
+from collections import defaultdict
+import time
+import paho.mqtt.publish as publish
+import logging
+
 
 sys.path.append("./mmaction2")
 
@@ -12,8 +18,7 @@ import cv2
 import mmcv
 import numpy as np
 import torch
-from mmcv import DictAction
-from mmcv.runner import load_checkpoint
+from mmengine.runner import load_checkpoint
 
 from mmaction.models import build_detector
 
@@ -137,7 +142,21 @@ def parse_args():
         type=float,
         default=0.5,
         help='the threshold of human action score')
-    parser.add_argument('--video', help='video file/url')
+    parser.add_argument(
+        '--save-vid', 
+        default=False, 
+        action='store_true', 
+        help='video output is store?')
+    parser.add_argument(
+        '--save-json', 
+        default=False, 
+        action='store_true', 
+        help='json output is store?')
+    
+    parser.add_argument('--mqtt_output', default=False, action='store_true', help='send output to mqtt topic')
+    parser.add_argument('--mqtt_topic', default='common-apps/har-model/output', help='output topic name')
+    parser.add_argument('--robot_id', default='video_A', help='device id')
+
     parser.add_argument(
         '--label-map',
         default='mmaction2/tools/data/ava/label_map.txt',
@@ -167,13 +186,41 @@ def parse_args():
     parser.add_argument(
         '--cfg-options',
         nargs='+',
-        action=DictAction,
         default={},
         help='override some settings in the used config, the key-value pair '
         'in xxx=yyy format will be merged into config file. For example, '
         "'--cfg-options model.backbone.depth=18 model.backbone.with_cp=True'")
-    args = parser.parse_args()
+    args = parser.parse_known_args()
     return args
+
+def extract_main_actions(results):
+    action_dict = defaultdict(lambda: {"total_score": 0.0, "count": 0})
+    total_persons = 0
+
+    # Loop through results
+    for frame_result in results:
+        # Loop through detected persons in each frame
+        for person_result in frame_result:
+            total_persons += 1
+            actions = person_result[1]
+            scores = person_result[2]
+            for action, score in zip(actions, scores):
+                action_dict[action]["total_score"] += score
+                action_dict[action]["count"] += 1
+    return action_dict, total_persons
+
+def calculate_presence_and_confidence(action_dict, total_count):
+    # Calculate presence percentage and average confidence
+    action_info = {}
+    for action, info in action_dict.items():
+        presence = info["count"] / total_count * 100
+        confidence = info["total_score"] / info["count"]
+        action_info[action] = {"presence": presence, "confidence": confidence}
+    
+    # Sort by presence
+    action_info = {k: v for k, v in sorted(action_info.items(), key=lambda item: item[1]['presence'], reverse=True)}
+
+    return action_info
 
 
 def frame_extraction(video_path):
@@ -188,6 +235,7 @@ def frame_extraction(video_path):
     # Should be able to handle videos up to several hours
     frame_tmpl = osp.join(target_dir, 'img_{:06d}.jpg')
     vid = cv2.VideoCapture(video_path)
+    fps = vid.get(cv2.CAP_PROP_FPS)
     frames = []
     frame_paths = []
     flag, frame = vid.read()
@@ -199,7 +247,7 @@ def frame_extraction(video_path):
         cv2.imwrite(frame_path, frame)
         cnt += 1
         flag, frame = vid.read()
-    return frame_paths, frames
+    return frame_paths, frames, fps
 
 
 def detection_inference(args, frame_paths):
@@ -277,15 +325,20 @@ def pack_result(human_detection, result, img_h, img_w):
     return results
 
 
-def main():
-    args = parse_args()
+def process_video(video_file):
 
-    frame_paths, original_frames = frame_extraction(args.video)
+    args, _ = parse_args()
+
+
+    if not os.path.exists(args.out_filename):
+        os.makedirs(args.out_filename)
+
+    frame_paths, original_frames, source_fps = frame_extraction(video_file)
     num_frame = len(frame_paths)
     h, w, _ = original_frames[0].shape
 
     # resize frames to shortside 256
-    new_w, new_h = mmcv.rescale_size((w, h), (512, np.Inf))
+    new_w, new_h = mmcv.rescale_size((w, h), (256, np.Inf))
     frames = [mmcv.imresize(img, (new_w, new_h)) for img in original_frames]
     w_ratio, h_ratio = new_w / w, new_h / h
 
@@ -391,28 +444,57 @@ def main():
     for human_detection, prediction in zip(human_detections, predictions):
         results.append(pack_result(human_detection, prediction, new_h, new_w))
 
+    # Extract main actions
+    action_dict, total_det = extract_main_actions(results)
+    total_count = sum(info["count"] for info in action_dict.values())
+
+    # Calculate action presence percentage and average confidence
+    action_info = calculate_presence_and_confidence(action_dict, total_count)
+
+    # Add extra info to the dictionary
+    action_info['total_detections'] = total_det
+    action_info['num_har_windows'] = len(results)
+
+    # Generate json file
+    if args.save_json:
+        path_json = os.path.join(args.out_filename,video_file.split("/")[-1].replace(video_file.split("/")[-1].split(".")[-1],"json"))
+        with open(path_json, 'w') as f:
+            json.dump(action_info, f, indent=4)
+    if args.mqtt_output:
+        # Publish a message 
+        start_time = time.time()
+        mqtt_topic_publish = os.path.join(args.mqtt_topic, args.robot_id)
+        client_id = args.robot_id
+        dict_out = json.dumps(action_info)
+        publish.single(mqtt_topic_publish, 
+                    json.dumps(dict_out), 
+                    hostname=os.getenv('BROKER_ADDRESS'), 
+                    port=int(os.getenv('BROKER_PORT')), 
+                    client_id=client_id, 
+                    auth = {"username": os.getenv('BROKER_USER'), "password": os.getenv('BROKER_PASSWORD')} )
+        encode_time = time.time() - start_time
+        logging.info(f"Publish out time: {encode_time:.2f}s")
+
     def dense_timestamps(timestamps, n):
         """Make it nx frames."""
         old_frame_interval = (timestamps[1] - timestamps[0])
         start = timestamps[0] - old_frame_interval / n * (n - 1) / 2
         new_frame_inds = np.arange(
             len(timestamps) * n) * old_frame_interval / n + start
-        return new_frame_inds.astype(np.int)
+        return new_frame_inds.astype(np.int64)
 
     dense_n = int(args.predict_stepsize / args.output_stepsize)
     frames = [
         cv2.imread(frame_paths[i - 1])
         for i in dense_timestamps(timestamps, dense_n)
     ]
-    print('Performing visualization')
-    vis_frames = visualize(frames, results)
-    vid = mpy.ImageSequenceClip([x[:, :, ::-1] for x in vis_frames],
-                                fps=args.output_fps)
-    vid.write_videofile(os.path.join(args.out_filename, args.video.split("/")[-1]))
+    if args.save_vid:
+        print('Performing visualization')
+        vis_frames = visualize(frames, results)
+        vid = mpy.ImageSequenceClip([x[:, :, ::-1] for x in vis_frames],
+                                    fps=source_fps)
+        vid.write_videofile(os.path.join(args.out_filename, video_file.split("/")[-1]))
 
     tmp_frame_dir = osp.dirname(frame_paths[0])
     shutil.rmtree(tmp_frame_dir)
 
-
-if __name__ == '__main__':
-    main()

@@ -13,16 +13,67 @@
             "justMyCode": true,
             "args":[
                 "--video", "input/VID_20230328_124524.mp4",
-                "--config", "mmaction2/configs/detection/ava/slowonly_omnisource_pretrained_r101_8x8x1_20e_ava_rgb.py",
-                "--det-config", "mmaction2/demo/faster_rcnn_r50_fpn_2x_coco.py",
                 "--det-score-thr", "0.2",
                 "--action-score-thr", "0.3",
-                "--label-map", "mmaction2/tools/data/ava/label_map.txt",
                 "--predict-stepsize", "12",
                 "--output-stepsize", "2",
                 "--output-fps", "12",
                 "--out-filename", "output/"
             ]   
+        },
+        {
+            "name": "record video",
+            "type": "python",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "args": [
+                "--video-file", "input/pexels_videos_2273136.mp4",
+                "--buffer-dir",
+                "./output/buffer/",
+                "--fps-keep",
+                "30.0",
+                "--video-duration",
+                "20",
+                "--det-score-thr", "0.3",
+                "--action-score-thr", "0.4",
+                "--predict-stepsize", "10",
+                "--output-stepsize", "1",
+                "--out-filename", "output/",
+                "--save-vid",
+                "--save-json",
+                "--mqtt_output",
+                "--mqtt_topic", "common-apps/har-model/output",
+                "--robot_id", "tractor_A"
+            ]
+        }
+        ,
+        {
+            "name": "live video",
+            "type": "python",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "args": [
+                "--buffer-dir",
+                "./output/buffer/",
+                "--fps-keep",
+                "15.0",
+                "--video-duration",
+                "20",
+                "--det-score-thr", "0.3",
+                "--action-score-thr", "0.4",
+                "--predict-stepsize", "10",
+                "--output-stepsize", "1",
+                "--out-filename", "output/",
+                "--save-vid",
+                "--save-json",
+                "--mqtt_output",
+                "--mqtt_topic", "common-apps/har-model/output",
+                "--robot_id", "tractor_A"
+            ]
         }
     ]
 }

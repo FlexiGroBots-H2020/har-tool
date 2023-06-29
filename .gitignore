@@ -6,3 +6,6 @@ output/
 __pycache__/
 # files to ignore
 search-results.json
+env/
+tests/
+tmp/
